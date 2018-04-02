@@ -9,9 +9,9 @@ file_error:	.asciiz "Error opening file! "
 colon:	.asciiz	": "
 breakline:	.asciiz	"\n"
 
-input_path:	.space 100	# "E:\Coding\MIPS\input.txt"
+input_path:	.space 256	# "E:\Coding\MIPS\input.txt"
 input_buffer:	.space 1000
-output_path:	.space 100	# "E:\Coding\MIPS\output.txt"
+output_path:	.space 256	# "E:\Coding\MIPS\output.txt"
 output_buffer:	.space 1000
 		.align	2
 ascii_stats:	.space 512
@@ -94,17 +94,6 @@ lb $t0, 1($a0)	# za³aduj drugi z nich
 bnez $t0, DECODE	# je¿eli nie jest \0, decode
 
 ENCODE:
-#przygotowanie tablicy ascii_stats (tablica liczników wyst¹pieñ znaków)
-#la $s7, ascii_stats	# za³aduj adres
-#li $t9, 127		# za³aduj licznik maksymalnym kodem ASCII
-#preparation_loop:
-#mul $t8, $t9, 8		# za³aduj do $t8 podwojon¹ wartoœæ obecnie rozpatrywanego znaku ASCII liczon¹ w s³owach
-#addu $t8, $s7, $t8	# za³aduj do $t8 adres ascii_table przesuniêty o to co wy¿ej
-#addiu $t8, $t8, 4	# przesuñ jeszcze o jedno s³owo dalej
-#sw $t9, ($t8)		# zapisz znak ASCII na swoim miejscu
-#addi $t9, $t9, -1		# przejdŸ do kolejnego znaku ASCII
-#bge $t9, $0, preparation_loop	# je¿eli nie przeszed³eœ na ujemne liczby, powtórz dla kolejnego znaku ASCII
-
 Load:
 li $v0, 14
 add $a0, $0, $s0
@@ -121,7 +110,6 @@ la $t9, input_buffer	# przygotowanie adresu pocz¹tku pobranej porcji wejœciowego
 
 stat_loop:
 lb $t0, ($t9)		# weŸ do $t0 bie¿¹cy znak
-beq $t0, $0, stat_end	# je¿eli to \0, zakoñcz procedurê
 mul $t1, $t0, 4		# za³aduj to $t1 wartoœæ wziêtego znaku ASCII liczon¹ w s³owach
 addu $t1, $s7, $t1	# stwórz adres do ascii_stats z przesuniêciem równym wartoœci 4*ASCII
 lw $t2, ($t1)		# weŸ do $t2 obecn¹ wartoœæ zliczonych znaków tego rodzaju
@@ -162,9 +150,9 @@ addi $t9, $t9, 1	# zinkrementuj licznik
 bne $t9, $t8, stat_print_loop	# loop
 
 # utworzenie "drzewa" Huffmanowskiego
-la $t1, output_buffer	# w $t1 mamy adres output buffer, gdzie bêdziemy ju¿ pisaæ
+la $s2, output_buffer	# w $s2 mamy adres output buffer, gdzie bêdziemy ju¿ pisaæ ("g³owica pisz¹ca")
 tree_big_loop:		# (szukamy maksymalnej wartoœci tyle razy, ile znaków wystêpuje chocia¿ raz w tekœcie i wstawiamy je kolejno na pocz¹tku szyfrogramu, tworz¹c "drzewo")
-addu $t0, $0, $s7	# za³aduj do $t0 adres ascii_stats
+addu $t0, $0, $s7	# za³aduj do $t0 adres ascii_stats ("g³owica czytaj¹ca")
 li $t9, 128		# przygotuj licznik
 li $t3, 0		# przygotuj rejestr na max
 li $t4, 0		# przygotuj rejestr na znak
@@ -183,15 +171,32 @@ beqz $t9, tree_big_next	# zakoñcz szukanie maksymalnego elementu po przejœciu pr
 j tree_small_loop	# powtórz dla nastêpnego znaku ASCII
 
 tree_big_next:
-beqz $t3, bit_pack	# je¿eli max = 0 => wszystkie pozosta³e znaki nie wystêpuj¹ w tekœcie -> zakoñcz procedurê
-sb $t4, ($t1)		# wyœlij do output_buffer kolejny najczêsciej wystepuj¹cy znak
+beqz $t3, tree_save	# je¿eli max = 0 => wszystkie pozosta³e znaki nie wystêpuj¹ w tekœcie -> zakoñcz procedurê
+sb $t4, ($s2)		# wyœlij do output_buffer kolejny najczêsciej wystepuj¹cy znak
 mul $t4, $t4, 4		# przygotuj przesuniêcie (przelicz ASCII na s³owa)
 addu $t0, $t4, $s7	# za³aduj do $t0 adres ascii_stats przesuniêty o (int)znak
 sb $0, ($t0)		# wyzeruj liczbê wyst¹pieñ tego znaku
-addiu $t1, $t1, 1	# przesuñ "g³owicê pisz¹c¹" na nastêpny znak output_buffer
+addiu $s2, $s2, 1	# przesuñ "g³owicê pisz¹c¹" na nastêpny znak output_buffer
 j tree_big_loop		# powtórz dla kolejnego obecnie najczêœciej wystepuj¹cego znaku
 
+tree_save:
+la $t0, output_buffer
+sub $t0, $s2, $t0	# wylicz liczbê znaków w drzewie
+sb $t0, ($s7)		# zapisz tê liczbê w ascii_stats
+li $v0, 15		# $v0 = "write to file"
+add $a0, $0, $s1	# $a0 = output file descriptor
+la $a1, ($s7)		# $a1 = adres ascii_stats
+li $a2, 1		# wpisz tylko tê liczbê
+syscall	# zapisz na pocz¹tku pliku wynikowego d³ugoœæ "drzewa"
+
+li $v0, 15		# $v0 = "write to file"
+add $a0, $0, $s1	# $a0 = output file descriptor
+la $a1, output_buffer	# $a1 = output buffer address
+sub $a2, $s2, $a1	# $a2 = liczba znaków do wpisania (d³ugoœæ drzewa)
+syscall	# zapisz "drzewo" do pliku wynikowego
+
 bit_pack:
+
 
 li $v0, 4
 la $a0, input_buffer
@@ -205,9 +210,11 @@ li $v0, 4
 la $a0, output_buffer
 syscall #wypisz plik
 
+
+
 DECODE:
 li $v0, 10
-syscall #zabij siê
+syscall #zabij siê (i wszystkie swoje otwarte pliki)
 
 
 pathSanitization: #usuniêcie \n z koñca œcie¿ki
