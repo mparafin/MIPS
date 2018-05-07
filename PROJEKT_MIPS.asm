@@ -1,3 +1,6 @@
+.eqv IN_BUF_LEN 4
+.eqv OUT_BUF_LEN 4
+
 .globl main
 .data
 intro:	.ascii	"The Huffman Coding - MIPS \"Big Project\"\n"
@@ -11,11 +14,11 @@ breakline:	.asciiz	"\n"
 
 input_path:	.space 256
 input_desc:	.byte 0	
-input_buffer:	.space 1024 
+input_buffer:	.space IN_BUF_LEN 
 output_path:	.space 256
 output_desc:	.byte 0
 		.align 2
-output_buffer:	.space 1024
+output_buffer:	.space OUT_BUF_LEN
 		.align	2
 ascii_stats:	.space 1024
 ascii_table:	.space 5120	# 256 * 20 - na ka¿dy znak ascii 1 s³owo na d³ugoœæ kodu i 16 bajtów na sam kod
@@ -103,15 +106,12 @@ lb $t0, 1($a0)	# za³aduj drugi z nich
 bnez $t0, DECODE	# je¿eli nie jest \0, czyli cokolwiek zosta³o wpisane, DECODE
 
 ENCODE:
-
-stat_load:
-jal Load
 #STATYSTYKA ZNAKÓW TEKSTU
-beqz $v0, stat_end
-la $s7, ascii_stats
+la $s7, ascii_stats	# $s7 = adres pocz¹tku ascii_stats
+jal Load		# za³aduj dane z pliku wejœciowego
+beqz $v0, end		# je¿eli plik jest pusty, zakoñcz program
 add $t8, $0, $v0	# przygotowanie licznika znaków w buforze (zapezpieczenie przed wyjœciem poza bufor lub za³adowane znaki)
 la $t9, input_buffer	# przygotowanie adresu pocz¹tku pobranej porcji wejœciowego pliku
-
 stat_loop:
 lb $t0, ($t9)		# weŸ do $t0 bie¿¹cy znak
 andi $t0, $t0, 0x000000ff # ogranicz dane tylko do tego bajtu 
@@ -123,9 +123,10 @@ sw $t2, ($t1)		# odstaw na miejsce
 addiu $t9, $t9, 1	# przesuñ siê o znak do przodu
 addi $t8, $t8, -1	# zmniejsz licznik
 bnez $t8, stat_loop	# je¿eli nie wyszed³eœ poza zakres, powtórz
-beqz $t8, stat_load	# je¿eli skoñczy³ siê bufor, za³aduj nowy fragment pliku
-
-stat_end:
+jal Load
+add $t8, $0, $v0	# przygotowanie licznika znaków w buforze (zapezpieczenie przed wyjœciem poza bufor lub za³adowane znaki)
+la $t9, input_buffer	# przygotowanie adresu pocz¹tku pobranej porcji wejœciowego pliku
+bnez $v0, stat_loop	# je¿eli coœ wczytano, powtarzaj dalej
 
 # wypisywanie statystyki znaków
 la $t0, ascii_stats	# za³aduj do $t0 adres ascii_stats
@@ -163,7 +164,7 @@ tree_loop:
 find_min1_nodes:
 move $t0, $s5			# $t0 - akumulator min1
 move $t1, $s5			# $t1 - adres min1
-la $t9, output_buffer		# przestaw g³owicê czytaj¹c¹ na output_buffer, gdzie tymczasowo przechowywane s¹ adresy luŸnych wêz³ów
+la $t9, ascii_table		# przestaw g³owicê czytaj¹c¹ na ascii_table, gdzie tymczasowo przechowywane s¹ adresy luŸnych wêz³ów
 f_m1_n_loop:
 lw $t8, ($t9)			# wczytaj do $t8 adres wêz³a
 beq $t8, $s5, f_m1_n_next	# je¿eli null, przejdŸ do nastêpnego wêz³a
@@ -198,7 +199,7 @@ bnez $t7, f_m1_a_loop	# je¿eli licznik siê skoñczy³ (rozpatrzono wszystkie ascii
 find_min2_nodes:
 move $t3, $s5			# $t3 - akumulator min2
 move $t4, $s5			# $t4 - adres min2
-la $t9, output_buffer		# przestaw g³owicê czytaj¹c¹ na output_buffer, gdzie tymczasowo przechowywane s¹ adresy luŸnych wêz³ów
+la $t9, ascii_table		# przestaw g³owicê czytaj¹c¹ na ascii_table, gdzie tymczasowo przechowywane s¹ adresy luŸnych wêz³ów
 f_m2_n_loop:
 lw $t8, ($t9)			# wczytaj do $t8 adres wêz³a
 beq $t8, $s5, f_m2_n_next	# je¿eli null, przejdŸ do nastêpnego wêz³a
@@ -247,7 +248,7 @@ move $t1, $sp			# zapisz w adresie min1 adres stworzonego wêz³a
 addiu $sp, $sp, -16		# przesuñ $sp
 j m2				# przejdŸ do min2
 m1_is_node:
-sw $s5, ($t2)			# zapisz wartoœæ null w miejsce adresu w output_buffer
+sw $s5, ($t2)			# zapisz wartoœæ null w miejsce adresu w ascii_table
 
 m2:
 beq $s5, $t3, tree_save		# je¿eli min2 = null, to znaczy ¿e jest tylko jeden wêze³, czyli root => zakoñczono tworzenie drzewa -> przejdŸ do zapisu drzewa w output_buffer
@@ -262,7 +263,7 @@ move $t4, $sp			# zapisz w adresie min2 adres stworzonego wêz³a
 addiu $sp, $sp, -16		# przesuñ $sp
 j create_node_wrap		# przejdŸ do tworzenia wêz³a ³¹cz¹cego min1 i min2
 m2_is_node:
-sw $s5, ($t5)			# zapisz wartoœæ null w miejsce adresu w output_buffer
+sw $s5, ($t5)			# zapisz wartoœæ null w miejsce adresu w ascii_table
 
 create_node_wrap:
 add $t0, $t0, $t3		# wylicz sumê poddrzew
@@ -270,28 +271,29 @@ sw $t0, ($sp)			# zapisz wartoœæ w nowym wêŸle
 sw $s5, -4($sp)			# zapisz null w wartoœci ASCII
 sw $t1, -8($sp)			# zapisz adres min1 jako adres lewego potomka
 sw $t4, -12($sp)		# zapisz adres min2 jako adres prawego potomka
-la $t9, output_buffer		# ustaw g³owicê czytaj¹c¹ na output_buffer
+la $t9, ascii_table		# ustaw g³owicê czytaj¹c¹ na ascii_table
+
+addiu $t9, $t9, -4		# przygotuj do nadchodz¹cej pêtli
 cnw_loop:
-lw $t8, ($t9)			# za³aduj wartoœæ
-beqz $t8, cnw_finish		# znajdŸ pierwsz¹ wolna komórkê
 addiu $t9, $t9, 4		# przesuñ g³owicê do przodu
-j cnw_loop			# szukaj dalej
-cnw_finish:
-sw $sp, ($t9)			# zapisz adres nowo stworzonego wêz³a w output_buffer
+lw $t8, ($t9)			# za³aduj wartoœæ
+bnez $t8, cnw_loop		# znajdŸ pierwsz¹ wolna komórkê
+
+sw $sp, ($t9)			# zapisz adres nowo stworzonego wêz³a w ascii_table
 addiu $sp, $sp, -16		# przesuñ $sp
 j tree_loop			# powtórz operacjê a¿ siê skoñcz¹ wêz³y
 
 tree_save:
 
-# wyczyœæ output_buffer
-la $t6, output_buffer		# za³aduj adres output_buffer do $t6
-li $t7, 1024			# przygotuj licznik
-sra $t7, $t7, 2			# podziel przez 4 (bêdzie pisane s³owami, a nie bajtami)
-output_buffer_clear:
+# wyczyœæ ascii_table
+la $t6, ascii_table		# za³aduj adres ascii_table do $t6
+ascii_table_clear:
 sw $0, ($t6)			# wyzeruj s³owo
 addiu $t6, $t6, 4		# przesuñ g³owicê
-addi $t7, $t7, -1		# zmniejsz licznik
-bnez $t7, output_buffer_clear	# powtórz a¿ nie wyzerujesz ca³ego output_buffer
+lw $t7, ($t6)			# wczytaj nastêpne s³owo
+bnez $t7, ascii_table_clear	# powtórz a¿ nie wyczyœcisz wszystkiego co by³o zapisane
+
+li $s6, 1			# przygotuj rejestr $s6, który od teraz bêdzie licznikiem "brudnych" bajtów (takich, które by³y zapisywane)
 
 la $s4, ($t1)			# $s4 = root drzewa
 move $t9, $s4			# ustaw g³owicê czytaj¹c¹ na root drzewa
@@ -311,7 +313,7 @@ ts_ascii:		# je¿eli to ASCII, to 1. dopisz do kodu drzewa w output_buffer "1" i 
 li $a0, 1			# $a0 = 1 (dopisywany bit)
 lw $a1, bit_head		# wczytaj adres pisanego bajtu do $a1
 lb $a2, bit_counter		# wczytaj liczbê bitów zapisanych w tym bajcie
-jal BitAppend		# dopisz
+jal BitAppend_s		# dopisz
 sb $v0, bit_counter		# zaktualizuj bit_counter
 sw $v1, bit_head		# zaktualizuj bit_head
 
@@ -377,7 +379,7 @@ ts_node:		# je¿eli to node, to dodaj "0" do kodu drzewa w output_buffer, zapisz 
 li $a0, 0			# $a0 = 0 (dopisywany bit)
 lw $a1, bit_head		# wczytaj adres pisanego bajtu do $a1
 lb $a2, bit_counter		# wczytaj liczbê bitów zapisanych w tym bajcie
-jal BitAppend		# dopisz
+jal BitAppend_s		# dopisz
 sb $v0, bit_counter		# zaktualizuj bit_counter
 sw $v1, bit_head		# zaktualizuj bit_head
 
@@ -451,11 +453,6 @@ li $a2, 0
 syscall #otwórz plik wejœciowy raz jeszcze
 sb $v0, input_desc		# zapisz deskryptor otwartego pliku
 
-lw $s6, bit_head		# wczytaj do $s6 adres g³owicy czytaj¹cej
-la $t0, output_buffer
-subu $s6, $s6, $t0		# odejmij od niego adres pocz¹tku bufora	
-addi $s6, $s6, 1		# dodaj 1 -> $s6 = liczba zapisanych bajtów
-
 jal Load			# wczytaj porcjê danych
 move $s7, $v0			# zapisz liczbê wczytanych bajtów do $s7
 la $t9, input_buffer		# ustaw g³owicê czytaj¹c¹ znaki na pocz¹tek input_buffer
@@ -476,6 +473,7 @@ lw $a1, bit_head		# a1 = adres
 li $a2, 8			# a2 = liczba bitów do wpisania
 move $a3, $s6			# a3 = licznik bajtów
 jal ByteWrite		# dopisz kolejny bajt
+move $s6, $a3			# zaktualizuj liczniik bajtów
 addiu $t7, $t7, 1		# przesuñ g³owicê czytaj¹c¹ kod na kolejny bajt
 addi $t5, $t5, -1		# zmniejsz licznik w pe³ni zapisanych bajtów
 bnez $t5, enc_mini_loop		# powtarzaj a¿ do wyzerowania licznika (zapisania wszystkich "pe³nych" bajtów)
@@ -485,11 +483,13 @@ lw $a1, bit_head		# $a1 = adres
 move $a2, $t4			# $a2 = liczba bitów do wpisania
 move $a3, $s6			# $a3 = licznik bajtów
 jal ByteWrite		# dopisz ostatni bajt
+move $s6, $a3			# zaktualizuj liczniik bajtów
 addiu $t9, $t9, 1		# przesuñ g³owicê czytaj¹c¹ do przodu
 addi $s7, $s7, -1		# zmniejsz licznik o 1
 bnez $s7, encode_loop		# je¿eli jeszcze jest co kodowaæ, powtórz
 jal Load			# wczytaj wiêcej
 move $s7, $v0			# zapisz liczbê wczytanych bajtów do $s7
+la $t9, input_buffer		# ustaw g³owicê czytaj¹c¹ znaki na pocz¹tek input_buffer
 bnez $s7, encode_loop		# jezeli wczytano cokolwiek, powtórz
 
 encode_wrap:
@@ -585,7 +585,8 @@ write:
 sb $t8, ($s2)			# zapisz ASCII pod adresem wskazywanym przez g³owicê pisz¹c¹
 addiu $s2, $s2, 1		# przesuñ g³owicê pisz¹c¹
 addi $s1, $s1, 1		# zinkrementuj licznik zapisanych bajtów
-li $t0, 1023			# wczytaj wielkoœæ bufora - 1
+li $t0, OUT_BUF_LEN		# wczytaj wielkoœæ bufora
+addi $t0, $t0, -1		# odejmij 1
 sub $t1, $t0, $s1		# $t1 = wielkoœæ bufora - liczba zapisanych bajtów - 1 => przyjmuje wartoœæ ujemn¹ wtw, gdy $s1 = wielkoœæ bufora
 bltzal $t1, Decode_Save		# je¿eli $s1 = wielkoœæ bufora, zapisz
 move $s3, $s4			# wróæ g³owic¹ chodz¹c¹ po drzewie do roota
@@ -618,8 +619,33 @@ Load: # wczytanie pliku do bufora (a przynajmniej pierwsze lub kolejne N bajtów)
 li $v0, 14		# komenda "wczytaj"
 lb $a0, input_desc	# $a0 = deskryptor pliku
 la $a1, input_buffer	# $a1 = adres docelowy (input_buffer)
-li $a2, 1024 		# $a2 = liczba bajtów do wczytania
+li $a2, IN_BUF_LEN 		# $a2 = liczba bajtów do wczytania
 syscall	# zrób to
+jr $ra			# wróæ sk¹d przyby³eœ
+
+BitAppend_s:		# bezpieczna wersja Bit_Append, s³u¿¹ca do pisania do output_buffer, uwzglêdniaj¹ca przepe³nienie bufora
+sw $ra, ($sp)		# zapisz adres powrotu na stosie
+addiu $sp, $sp, -4	# przesuñ stos
+
+bne $a2, 8, append	# je¿eli bit_counter != 8, spokojnie przejdŸ do BitAppend
+bne $s6, OUT_BUF_LEN, append	# je¿eli bufor siê nie przepe³nia, przejdŸ do BitAppend
+# je¿eli oba warunki s¹ spe³nione (czyli bufor w³aœnie siê przepe³nia):
+sw $a0, ($sp)		# zapisz na stosie wartoœæ $a0
+sw $a1, -4($sp)		# zapisz na stosie wartoœæ $a1
+sw $a2, -8($sp)		# zapisz na stosie wartoœæ $a2
+addiu $sp, $sp, -12	# przesuñ stos
+jal Encode_Save		# zrzuæ output_buffer do pliku
+addiu $sp, $sp, 12	# wróæ stos
+sw $a0, ($sp)		# wczytaj wartoœæ $a0
+sw $a1, -4($sp)		# wczytaj wartoœæ $a1
+sw $a2, -8($sp)		# wczytaj wartoœæ $a2
+
+append:
+move $a3, $s6		# wczytaj licznik bajtów
+jal BitAppend		# przejdŸ do BitAppend
+move $s6, $a3		# uaktualnij licznik bajtów
+addiu $sp, $sp, 4	# cofnij stos
+lw $ra, ($sp)		# wczytaj adres powrotu
 jr $ra			# wróæ sk¹d przyby³eœ
 
 Encode_Save:
@@ -687,7 +713,7 @@ sb $v0, bit_counter	# zaktualizuj bit_counter
 move $s6, $a3		# zaktualizuj licznik bajtów
 subi $v0, $v0, 8	# odejmij 8 od $v0
 bnez $v0, WW_next	# sprawdŸ czy licznik bitów = 8, je¿eli tak:
-li $t0, 1024		#   za³aduj wielkoœæ bufora
+li $t0, OUT_BUF_LEN	#   za³aduj wielkoœæ bufora
 bne $s6, $t0, WW_next	#   sprawdŸ, czy przepe³nia siê bufor
 jal Encode_Save		#   je¿eli tak, zrzuæ bufor do pliku
 WW_next:
